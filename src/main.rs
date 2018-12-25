@@ -17,43 +17,56 @@ impl Sphere {
         }
     }
 
-    pub fn intersect(
-        &self,
-        ray: &Ray
-    ) -> Option<Intersection> {
+    pub fn intersect(&self, ray: &Ray) -> Option<Intersection> {
         let dot_product = (self.origin - ray.origin).dot(&ray.direction);
         if dot_product < 0.0 {
+            // ray pointing away from sphere
             return None;
         }
+        // for the following calculations, we don't take roots if not necessary
+
+        // use orthogonal decomposition to find how close to the origin the ray comes
         let closest_to_origin_squared =
             (self.origin - ray.origin).norm_squared() - dot_product.powi(2);
         let square_radius = self.radius.powi(2);
+        // if this is further than the radius, there is no intersection
         if closest_to_origin_squared > square_radius {
             return None;
         }
+        // we have an intersection. calculate values for Intersection struct
+
         let intersection_distance =
             dot_product - (square_radius - closest_to_origin_squared).sqrt();
+        let intersection_point = ray.origin + ray.direction * intersection_distance;
+        let surface_normal = (intersection_point - self.origin).normalize();
+        let shade = surface_normal.dot(&ray.opposite);
         Some(Intersection {
             distance: intersection_distance,
+            shade: shade,
         })
     }
 }
 
 pub struct Intersection {
     pub distance: f64,
+    pub shade: f64,
 }
 
 pub struct Ray {
     pub origin: Vector3<f64>,
     pub direction: Vector3<f64>,
+    pub opposite: Vector3<f64>,
 }
 
 impl Ray {
     pub fn from_to(origin: Vector3<f64>, target: Vector3<f64>) -> Ray {
-        Ray { origin, direction: (target - origin).normalize() }
+        Ray {
+            origin,
+            direction: (target - origin).normalize(),
+            opposite: (origin - target).normalize(),
+        }
     }
 }
-
 
 fn main() {
     let origin = Vector3::<f64>::new(0.0, 0.0, 0.0);
@@ -69,14 +82,17 @@ fn main() {
         let x = x as f64;
         let y = y as f64;
         let mut closest_match = f64::MAX;
-        let ray = Ray::from_to(origin, Vector3::<f64>::new(upper_left.0 + x, upper_left.1 + y, film_distance));
+        let ray = Ray::from_to(
+            origin,
+            Vector3::<f64>::new(upper_left.0 + x, upper_left.1 + y, film_distance),
+        );
         *pixel = image::Luma([0u8]);
         for sphere in &spheres {
             match sphere.intersect(&ray) {
                 None => {}
-                Some(Intersection { distance }) => {
+                Some(Intersection { distance, shade }) => {
                     if distance < closest_match {
-                        *pixel = image::Luma([255u8]);
+                        *pixel = image::Luma([(shade * 255.0) as u8]);
                         closest_match = distance;
                     }
                 }

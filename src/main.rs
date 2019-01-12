@@ -68,7 +68,7 @@ impl Ray {
 fn main() {
     let origin = Vector3::<f64>::new(0.0, 0.0, 0.0);
     let film_distance: f64 = 1000.0;
-    let dimensions = (1920, 1200);
+    let dimensions = (1920 as usize, 1200 as usize);
     let spheres = vec![
         Sphere::new(-200.0, -200.0, 7000.0, 500.0),
         Sphere::new(200.0, 200.0, 5000.0, 500.0)
@@ -78,16 +78,18 @@ fn main() {
         Vector3::<f64>::new(0.0, 0.0, 0.0),
     ];
     let upper_left = (-(dimensions.0 as f64) / 2.0, -(dimensions.1 as f64) / 2.0);
-    let mut imgbuf = image::GrayImage::new(dimensions.0, dimensions.1);
-    for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
-        let x = x as f64;
-        let y = y as f64;
+
+    let number_of_pixels = dimensions.0 * dimensions.1;
+    let mut pixels = vec![0.0; number_of_pixels];
+    for (i, pixel) in pixels.iter_mut().enumerate() {
+        let x = (i % dimensions.0) as f64;
+        let y = (i / dimensions.0) as f64;
         let mut closest_match = f64::MAX;
         let ray = Ray::from_to(
             origin,
             &Vector3::<f64>::new(upper_left.0 + x, upper_left.1 + y, film_distance),
         );
-        *pixel = image::Luma([0u8]);
+        *pixel = 0.0;
         for sphere in &spheres {
             match sphere.intersect(&ray) {
                 None => {}
@@ -115,12 +117,17 @@ fn main() {
                                 illumination += light_intensity_dot / (lights.len() as f64);
                             }
                         }
-                        *pixel = image::Luma([(illumination * 255.0) as u8]);
+                        *pixel = illumination;
                         closest_match = distance;
                     }
                 }
             }
         }
+    }
+    let mut imgbuf = image::GrayImage::new(dimensions.0 as u32, dimensions.1 as u32);
+    for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
+        let array_index = x as usize + (y as usize * dimensions.0);
+        *pixel = image::Luma([(pixels[array_index] * 255.0) as u8]);
     }
     imgbuf.save("render.png").unwrap();
 }

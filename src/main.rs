@@ -65,12 +65,12 @@ impl Ray {
     }
 }
 
-fn render(dimensions: (usize, usize), spheres: &Vec<Sphere>, lights: &Vec<Vector3<f64>>) -> Vec<f64> {
+fn render(dimensions: (usize, usize), spheres: &Vec<Sphere>, lights: &Vec<Vector3<f64>>) -> Vec<Vector3<f32>> {
     let film_distance: f64 = 1000.0;
     let origin = Vector3::<f64>::new(0.0, 0.0, 0.0);
     let upper_left = (-(dimensions.0 as f64) / 2.0, -(dimensions.1 as f64) / 2.0);
     let number_of_pixels = dimensions.0 * dimensions.1;
-    let mut pixels = vec![0.0; number_of_pixels];
+    let mut pixels = vec![Vector3::<f32>::new(0.0, 0.0, 0.0); number_of_pixels];
     for (i, pixel) in pixels.iter_mut().enumerate() {
         let x = (i % dimensions.0) as f64;
         let y = (i / dimensions.0) as f64;
@@ -79,14 +79,13 @@ fn render(dimensions: (usize, usize), spheres: &Vec<Sphere>, lights: &Vec<Vector
             origin,
             &Vector3::<f64>::new(upper_left.0 + x, upper_left.1 + y, film_distance),
         );
-        *pixel = 0.0;
         for sphere in spheres {
             match sphere.intersect(&ray) {
                 None => {}
                 Some(Intersection { distance }) => {
                     if distance < closest_match {
                         let intersection_point = ray.origin + ray.direction * distance;
-                        let mut illumination = 0.0;
+                        let mut illumination: f32 = 0.0;
                         for light in lights {
                             let shadow_ray = Ray::from_to(intersection_point, light);
                             let mut occluded = false;
@@ -104,10 +103,10 @@ fn render(dimensions: (usize, usize), spheres: &Vec<Sphere>, lights: &Vec<Vector
                             let surface_normal = sphere.surface_normal(intersection_point);
                             let light_intensity_dot = surface_normal.dot(&shadow_ray.direction);
                             if  light_intensity_dot > 0.0 {
-                                illumination += light_intensity_dot / (lights.len() as f64);
+                                illumination += light_intensity_dot as f32 / (lights.len() as f32);
                             }
                         }
-                        *pixel = illumination;
+                        *pixel = Vector3::<f32>::new(illumination, illumination, illumination);
                         closest_match = distance;
                     }
                 }
@@ -131,10 +130,13 @@ fn main() {
 
     let pixels = render(dimensions, &spheres, &lights);
     
-    let mut imgbuf = image::GrayImage::new(dimensions.0 as u32, dimensions.1 as u32);
+    let mut imgbuf = image::RgbImage::new(dimensions.0 as u32, dimensions.1 as u32);
     for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
         let array_index = x as usize + (y as usize * dimensions.0);
-        *pixel = image::Luma([(pixels[array_index] * 255.0) as u8]);
+        let channels = pixels[array_index].map(|x| (x * 255.9) as u8);
+        for (i, channel) in channels.iter().enumerate() {
+            (*pixel)[i] = *channel;
+        }
     }
     imgbuf.save("render.png").unwrap();
 }

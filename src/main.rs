@@ -65,20 +65,10 @@ impl Ray {
     }
 }
 
-fn main() {
-    let origin = Vector3::<f64>::new(0.0, 0.0, 0.0);
+fn render(dimensions: (usize, usize), spheres: &Vec<Sphere>, lights: &Vec<Vector3<f64>>) -> Vec<f64> {
     let film_distance: f64 = 1000.0;
-    let dimensions = (1920 as usize, 1200 as usize);
-    let spheres = vec![
-        Sphere::new(-200.0, -200.0, 7000.0, 500.0),
-        Sphere::new(200.0, 200.0, 5000.0, 500.0)
-    ];
-    let lights = vec![
-        Vector3::<f64>::new(1000.0, 1000.0, 1000.0),
-        Vector3::<f64>::new(0.0, 0.0, 0.0),
-    ];
+    let origin = Vector3::<f64>::new(0.0, 0.0, 0.0);
     let upper_left = (-(dimensions.0 as f64) / 2.0, -(dimensions.1 as f64) / 2.0);
-
     let number_of_pixels = dimensions.0 * dimensions.1;
     let mut pixels = vec![0.0; number_of_pixels];
     for (i, pixel) in pixels.iter_mut().enumerate() {
@@ -90,17 +80,17 @@ fn main() {
             &Vector3::<f64>::new(upper_left.0 + x, upper_left.1 + y, film_distance),
         );
         *pixel = 0.0;
-        for sphere in &spheres {
+        for sphere in spheres {
             match sphere.intersect(&ray) {
                 None => {}
                 Some(Intersection { distance }) => {
                     if distance < closest_match {
                         let intersection_point = ray.origin + ray.direction * distance;
                         let mut illumination = 0.0;
-                        for light in &lights {
+                        for light in lights {
                             let shadow_ray = Ray::from_to(intersection_point, light);
                             let mut occluded = false;
-                            for other_sphere in &spheres {
+                            for other_sphere in spheres {
                                 if other_sphere as *const _ != sphere as *const _ {
                                     if let Some(_) = other_sphere.intersect(&shadow_ray) {  
                                         occluded = true;
@@ -124,6 +114,23 @@ fn main() {
             }
         }
     }
+    pixels
+}
+
+fn main() {
+    
+    let dimensions = (1920 as usize, 1200 as usize);
+    let spheres = vec![
+        Sphere::new(-200.0, -200.0, 7000.0, 500.0),
+        Sphere::new(200.0, 200.0, 5000.0, 500.0)
+    ];
+    let lights = vec![
+        Vector3::<f64>::new(1000.0, 1000.0, 1000.0),
+        Vector3::<f64>::new(0.0, 0.0, 0.0),
+    ];
+
+    let pixels = render(dimensions, &spheres, &lights);
+    
     let mut imgbuf = image::GrayImage::new(dimensions.0 as u32, dimensions.1 as u32);
     for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
         let array_index = x as usize + (y as usize * dimensions.0);

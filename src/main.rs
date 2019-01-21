@@ -68,7 +68,7 @@ impl Ray {
 }
 
 fn infinite_color(ray: &Ray) -> Vector3<f32> {
-    let background_color = 0.5 * (ray.direction[1] + 1.0) as f32;
+    let background_color = -0.5 * (ray.direction[1] + 1.0) as f32;
     Vector3::new(background_color, background_color, 1.0)
 }
 
@@ -84,12 +84,15 @@ fn trace_ray(ray: &Ray, spheres: &Vec<Sphere>, lights: &Vec<Vector3<f64>>) -> Ve
                     let mut illumination: f32 = 0.0;
                     for light in lights {
                         let shadow_ray = Ray::from_to(intersection_point, light);
+                        let light_distance = (light - intersection_point).norm();
                         let mut occluded = false;
                         for other_sphere in spheres {
                             if other_sphere as *const _ != sphere as *const _ {
-                                if let Some(_) = other_sphere.intersect(&shadow_ray) {
-                                    occluded = true;
-                                    break;
+                                if let Some(distance) = other_sphere.intersect(&shadow_ray) {
+                                    if distance.distance < light_distance {
+                                        occluded = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -118,16 +121,16 @@ fn render(
 ) -> Vec<Vector3<f32>> {
     let film_distance: f64 = 1000.0;
     let origin = Vector3::<f64>::new(0.0, 0.0, 0.0);
-    let upper_left = (-(dimensions.0 as f64) / 2.0, -(dimensions.1 as f64) / 2.0);
+    let upper_left = (-(dimensions.0 as f64) / 2.0, (dimensions.1 as f64) / 2.0);
     let number_of_pixels = dimensions.0 * dimensions.1;
     let mut pixels = vec![Vector3::<f32>::new(0.0, 0.0, 0.0); number_of_pixels];
     for (i, pixel) in pixels.iter_mut().enumerate() {
-        let x = (i % dimensions.0) as f64;
-        let y = (i / dimensions.0) as f64;
+        let offset_right = (i % dimensions.0) as f64;
+        let offset_down = (i / dimensions.0) as f64;
         
         let ray = Ray::from_to(
             origin,
-            &Vector3::<f64>::new(upper_left.0 + x, upper_left.1 + y, film_distance),
+            &Vector3::<f64>::new(upper_left.0 + offset_right, upper_left.1 - offset_down - 1.0, film_distance),
         );
 
         *pixel = trace_ray(&ray, spheres, lights);
@@ -138,11 +141,12 @@ fn render(
 fn main() {
     let dimensions = (1920 as usize, 1200 as usize);
     let spheres = vec![
-        Sphere::new(-200.0, -200.0, 7000.0, 500.0),
-        Sphere::new(200.0, 200.0, 5000.0, 500.0),
+        Sphere::new(-200.0, 200.0, 7000.0, 500.0),
+        Sphere::new(200.0, -200.0, 5000.0, 500.0),
+        Sphere::new(0.0, -51000.0, 5000.0, 50000.0),
     ];
     let lights = vec![
-        Vector3::<f64>::new(1000.0, 1000.0, 1000.0),
+        Vector3::<f64>::new(1000.0, -1000.0, 1000.0),
         Vector3::<f64>::new(0.0, 0.0, 0.0),
     ];
 

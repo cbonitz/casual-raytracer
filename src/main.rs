@@ -3,19 +3,43 @@ extern crate rand;
 
 extern crate nalgebra as na;
 use na::Vector3;
+#[allow(unused_imports)]
 use rand::{thread_rng, Rng};
 use std::f64;
+
+const MAX_DEPTH: u32 = 5;
+
+pub enum Surface {
+    Diffuse,
+    Specular,
+}
+
+pub struct Light {
+    pub coordinates: Vector3<f64>,
+    pub intensity: f64,
+}
+
+impl Light {
+    pub fn new(x: f64, y: f64, z: f64, intensity: f64) -> Light {
+        Light {
+            coordinates: Vector3::new(x, y, z),
+            intensity,
+        }
+    }
+}
 
 pub struct Sphere {
     pub origin: Vector3<f64>,
     pub radius: f64,
+    pub surface: Surface,
 }
 
 impl Sphere {
-    pub fn new(x: f64, y: f64, z: f64, radius: f64) -> Sphere {
+    pub fn new(x: f64, y: f64, z: f64, radius: f64, surface: Surface) -> Sphere {
         Sphere {
             origin: Vector3::new(x, y, z),
             radius,
+            surface,
         }
     }
 
@@ -65,48 +89,77 @@ impl Ray {
             direction: (target - origin).normalize(),
         }
     }
+
+    pub fn origin_direction(origin: Vector3<f64>, normalized_direction: Vector3<f64>) -> Ray {
+        Ray {
+            origin,
+            direction: normalized_direction,
+        }
+    }
 }
 
 fn infinite_color(ray: &Ray) -> Vector3<f32> {
-    let background_color = -0.5 * (ray.direction[1] + 1.0) as f32;
-    Vector3::new(background_color, background_color, 1.0)
+    let background_color = 0.5 * (ray.direction[1] + 1.0) as f32;
+    let result = Vector3::new(1.0 - background_color, 1.0 - background_color, 1.0);
+    result
 }
 
-fn trace_ray(ray: &Ray, spheres: &Vec<Sphere>, lights: &Vec<Vector3<f64>>) -> Vector3<f32> {
+fn trace_ray(ray: &Ray, spheres: &Vec<Sphere>, lights: &Vec<Light>, depth: u32) -> Vector3<f32> {
     let mut closest_match = f64::MAX;
     let mut pixel = infinite_color(&ray);
+    if depth >= MAX_DEPTH {
+        return pixel;
+    }
     for sphere in spheres {
         match sphere.intersect(&ray) {
             None => {}
             Some(Intersection { distance }) => {
                 if distance < closest_match {
+                    closest_match = distance;
                     let intersection_point = ray.origin + ray.direction * distance;
-                    let mut illumination: f32 = 0.0;
-                    for light in lights {
-                        let shadow_ray = Ray::from_to(intersection_point, light);
-                        let light_distance = (light - intersection_point).norm();
-                        let mut occluded = false;
-                        for other_sphere in spheres {
-                            if other_sphere as *const _ != sphere as *const _ {
-                                if let Some(distance) = other_sphere.intersect(&shadow_ray) {
-                                    if distance.distance < light_distance {
-                                        occluded = true;
-                                        break;
+                    match sphere.surface {
+                        Surface::Diffuse => {
+                            let mut illumination: f32 = 0.0;
+                            for light in lights {
+                                let shadow_ray =
+                                    Ray::from_to(intersection_point, &light.coordinates);
+                                let light_distance =
+                                    (light.coordinates - intersection_point).norm();
+                                let mut occluded = false;
+                                for other_sphere in spheres {
+                                    if other_sphere as *const _ != sphere as *const _ {
+                                        if let Some(distance) = other_sphere.intersect(&shadow_ray)
+                                        {
+                                            if distance.distance < light_distance {
+                                                occluded = true;
+                                                break;
+                                            }
+                                        }
                                     }
                                 }
+                                if occluded {
+                                    continue;
+                                }
+                                let surface_normal = sphere.surface_normal(intersection_point);
+                                let light_intensity_dot = surface_normal.dot(&shadow_ray.direction);
+                                if light_intensity_dot > 0.0 {
+                                    illumination +=
+                                        light.intensity as f32 * light_intensity_dot as f32;
+                                }
+                            }
+                            pixel = Vector3::<f32>::new(illumination, illumination, illumination);
+                        }
+                        Surface::Specular => {
+                            let surface_normal = sphere.surface_normal(intersection_point);
+                            let to_source = - ray.direction;
+                            let out_direction = 2.0 * to_source.dot(&surface_normal) * surface_normal - to_source;
+                            pixel = trace_ray(&Ray::origin_direction(intersection_point, out_direction), spheres, lights, depth + 1);
+                            if 0.001 > rand::thread_rng().gen() {
+                                println!("sn {:?} to_source {:?} out {:?}", surface_normal.data, to_source.data, out_direction.data);
+                                println!("intersection {:?} pixel {:?}", intersection_point.data, pixel.data);
                             }
                         }
-                        if occluded {
-                            continue;
-                        }
-                        let surface_normal = sphere.surface_normal(intersection_point);
-                        let light_intensity_dot = surface_normal.dot(&shadow_ray.direction);
-                        if light_intensity_dot > 0.0 {
-                            illumination += light_intensity_dot as f32 / (lights.len() as f32);
-                        }
                     }
-                    pixel = Vector3::<f32>::new(illumination, illumination, illumination);
-                    closest_match = distance;
                 }
             }
         }
@@ -117,7 +170,7 @@ fn trace_ray(ray: &Ray, spheres: &Vec<Sphere>, lights: &Vec<Vector3<f64>>) -> Ve
 fn render(
     dimensions: (usize, usize),
     spheres: &Vec<Sphere>,
-    lights: &Vec<Vector3<f64>>,
+    lights: &Vec<Light>,
 ) -> Vec<Vector3<f32>> {
     let film_distance: f64 = 1000.0;
     let origin = Vector3::<f64>::new(0.0, 0.0, 0.0);
@@ -127,30 +180,42 @@ fn render(
     for (i, pixel) in pixels.iter_mut().enumerate() {
         let offset_right = (i % dimensions.0) as f64;
         let offset_down = (i / dimensions.0) as f64;
-        
+
         let ray = Ray::from_to(
             origin,
-            &Vector3::<f64>::new(upper_left.0 + offset_right, upper_left.1 - offset_down - 1.0, film_distance),
+            &Vector3::<f64>::new(
+                upper_left.0 + offset_right,
+                upper_left.1 - offset_down - 1.0,
+                film_distance,
+            ),
         );
 
-        *pixel = trace_ray(&ray, spheres, lights);
+        *pixel = trace_ray(&ray, spheres, lights, 1);
     }
     pixels
+}
+
+fn expose(pixels: &Vec<Vector3<f32>>) -> Vec<Vector3<f32>> {
+    let scaling_factor = 1.0 / pixels.iter().map(|x| x[x.imax()]).fold(0.0, f32::max);
+    pixels.iter().map(|x| x * scaling_factor).collect()
 }
 
 fn main() {
     let dimensions = (1920 as usize, 1200 as usize);
     let spheres = vec![
-        Sphere::new(-200.0, 200.0, 7000.0, 500.0),
-        Sphere::new(200.0, -200.0, 5000.0, 500.0),
-        Sphere::new(0.0, -51000.0, 5000.0, 50000.0),
+        Sphere::new(-200.0, 200.0, 7000.0, 500.0, Surface::Diffuse),
+        Sphere::new(2000.0, 0.0, 10000.0, 1000.0, Surface::Specular),
+        Sphere::new(200.0, -200.0, 5000.0, 500.0, Surface::Diffuse),
+        Sphere::new(0.0, -51000.0, 5000.0, 50000.0, Surface::Diffuse),
     ];
     let lights = vec![
-        Vector3::<f64>::new(1000.0, -1000.0, 1000.0),
-        Vector3::<f64>::new(0.0, 0.0, 0.0),
+        Light::new(1000.0, -1000.0, 1000.0, 0.5),
+        Light::new(0.0, 0.0, 0.0, 0.5),
     ];
 
     let pixels = render(dimensions, &spheres, &lights);
+
+    let pixels = expose(&pixels);
 
     let mut imgbuf = image::RgbImage::new(dimensions.0 as u32, dimensions.1 as u32);
     for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {

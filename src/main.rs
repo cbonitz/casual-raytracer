@@ -44,28 +44,18 @@ impl Sphere {
     }
 
     pub fn intersect(&self, ray: &Ray) -> Option<Intersection> {
-        let dot_product = (self.origin - ray.origin).dot(&ray.direction);
-        if dot_product < 0.0 {
-            // ray pointing away from sphere
+        if ray.direction.dot(&(self.origin - ray.origin)) <= 0.0 {
             return None;
         }
-        // for the following calculations, we don't take roots if not necessary
-
-        // use orthogonal decomposition to find how close to the origin the ray comes
-        let closest_to_origin_squared =
-            (self.origin - ray.origin).norm_squared() - dot_product.powi(2);
-        let square_radius = self.radius.powi(2);
-        // if this is further than the radius, there is no intersection
-        if closest_to_origin_squared > square_radius {
+        let origin_to_ray_origin = ray.origin - self.origin;
+        let b = 2.0 * origin_to_ray_origin.dot(&ray.direction);
+        let c = origin_to_ray_origin.norm_squared() - self.radius * self.radius;
+        // assuming unit direction
+        let discriminant = b*b - 4.0 * c;
+        if discriminant < 0.0 {
             return None;
         }
-
-        // we have an intersection. calculate values for Intersection struct
-        let intersection_distance =
-            dot_product - (square_radius - closest_to_origin_squared).sqrt();
-        Some(Intersection {
-            distance: intersection_distance,
-        })
+        Some(Intersection { distance: 0.5 * (-b - discriminant.sqrt()) })
     }
 
     pub fn surface_normal(&self, intersection_point: Vector3<f32>) -> Vector3<f32> {
@@ -167,20 +157,23 @@ fn render(
     spheres: &Vec<Sphere>,
     lights: &Vec<Light>,
 ) -> Vec<Vector3<f32>> {
-    let film_distance: f32 = 1000.0;
+    let film_distance: f32 = 1.0;
     let origin = Vector3::<f32>::new(0.0, 0.0, 0.0);
-    let upper_left = (-(dimensions.0 as f32) / 2.0, (dimensions.1 as f32) / 2.0);
+    let inverse_origin = dimensions.1 as f32 / dimensions.0 as f32;
+    let delta_x = 2.0 / dimensions.0 as f32;
+    let delta_y = 2.0 * inverse_origin / dimensions.1 as f32;
+    let upper_left = (-1.0, inverse_origin);
     let number_of_pixels = dimensions.0 * dimensions.1;
     let mut pixels = vec![Vector3::<f32>::new(0.0, 0.0, 0.0); number_of_pixels];
     for (i, pixel) in pixels.iter_mut().enumerate() {
-        let offset_right = (i % dimensions.0) as f32;
-        let offset_down = (i / dimensions.0) as f32;
+        let offset_right = (i % dimensions.0) as f32 * delta_x;
+        let offset_down = (i / dimensions.0) as f32 * delta_y;
 
         let ray = Ray::from_to(
             origin,
             &Vector3::<f32>::new(
                 upper_left.0 + offset_right,
-                upper_left.1 - offset_down - 1.0,
+                upper_left.1 - offset_down,
                 film_distance,
             ),
         );
@@ -196,17 +189,17 @@ fn expose(pixels: &Vec<Vector3<f32>>) -> Vec<Vector3<f32>> {
 }
 
 fn main() {
-    let dimensions = (1920 as usize, 1200 as usize);
+    let dimensions = (1920 as usize, 1080 as usize);
     let spheres = vec![
-        Sphere::new(-200.0, 200.0, 7000.0, 500.0, Surface::Diffuse { color: Vector3::<f32>::new(1.0, 1.0, 0.0) }),
-        Sphere::new(200.0, -200.0, 5000.0, 500.0, Surface::Diffuse { color: Vector3::<f32>::new(1.0, 0.0, 0.0) }),
-        Sphere::new(0.0, -51000.0, 5000.0, 50000.0, Surface::Diffuse { color: Vector3::<f32>::new(0.0, 1.0, 0.0) }),
+        Sphere::new(-0.2, 0.2, 7.0, 0.5, Surface::Diffuse { color: Vector3::<f32>::new(1.0, 1.0, 0.0) }),
+        Sphere::new(0.2, -0.2, 5.0, 0.5, Surface::Diffuse { color: Vector3::<f32>::new(1.0, 0.0, 0.0) }),
+        Sphere::new(0.0, -51.0, 5.0, 50.0, Surface::Diffuse { color: Vector3::<f32>::new(0.0, 1.0, 0.0) }),
 
-        Sphere::new(2000.0, 0.0, 10000.0, 1000.0, Surface::Specular),
-        Sphere::new(0.0, 0.0, -10001.0, 10000.0, Surface::Specular),
+        Sphere::new(2.0, 0.0, 10.0, 1.0, Surface::Specular),
+        Sphere::new(0.0, 0.0, -10.1, 10.0, Surface::Specular),
     ];
     let lights = vec![
-        Light::new(1000.0, -1000.0, 1000.0, 0.5),
+        Light::new(1.0, -1.0, 1.0, 0.5),
         Light::new(0.0, 0.0, 0.0, 0.5),
     ];
 

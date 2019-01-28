@@ -1,19 +1,19 @@
 extern crate image;
-extern crate rand;
 extern crate nalgebra as na;
+extern crate rand;
 extern crate rayon;
 
 use na::Vector3;
 #[allow(unused_imports)]
 use rand::{thread_rng, Rng};
-use std::f32;
 use rayon::prelude::*;
+use std::f32;
 
 const MAX_DEPTH: u32 = 5;
-const ANTIALIASING: usize = 100;
+const ANTIALIASING_SQRT: usize = 5;
 
 pub enum Surface {
-    Diffuse { color: Vector3<f32>},
+    Diffuse { color: Vector3<f32> },
     Specular,
 }
 
@@ -47,18 +47,20 @@ impl Sphere {
     }
 
     pub fn intersect(&self, ray: &Ray) -> Option<Intersection> {
-        if ray.direction.dot(&(self.origin - ray.origin)) <= 0.0 {
-            return None;
-        }
         let origin_to_ray_origin = ray.origin - self.origin;
         let b = 2.0 * origin_to_ray_origin.dot(&ray.direction);
         let c = origin_to_ray_origin.norm_squared() - self.radius * self.radius;
         // assuming unit direction
-        let discriminant = b*b - 4.0 * c;
+        let discriminant = b * b - 4.0 * c;
         if discriminant < 0.0 {
             return None;
         }
-        Some(Intersection { distance: 0.5 * (-b - discriminant.sqrt()) })
+        let distance = 0.5 * (-b - discriminant.sqrt());
+        if distance > 0.0 {
+            Some(Intersection { distance })
+        } else {
+            None
+        }
     }
 
     pub fn surface_normal(&self, intersection_point: Vector3<f32>) -> Vector3<f32> {
@@ -99,60 +101,71 @@ fn infinite_color(ray: &Ray) -> Vector3<f32> {
 
 fn trace_ray(ray: &Ray, spheres: &Vec<Sphere>, lights: &Vec<Light>, depth: u32) -> Vector3<f32> {
     let mut closest_match = f32::MAX;
-    let mut pixel = infinite_color(&ray);
+    let mut closest_sphere: Option<&Sphere> = None;
+
     if depth >= MAX_DEPTH {
-        return pixel;
+        return infinite_color(&ray);
     }
+
     for sphere in spheres {
         match sphere.intersect(&ray) {
             None => {}
             Some(Intersection { distance }) => {
-                if distance > 0.0 && distance < closest_match {
+                if distance < closest_match {
                     closest_match = distance;
-                    let intersection_point = ray.origin + ray.direction * distance;
-                    match sphere.surface {
-                        Surface::Diffuse { color } => {
-                            let mut light_intensity: f32 = 0.0;
-                            for light in lights {
-                                let shadow_ray =
-                                    Ray::from_to(intersection_point, &light.coordinates);
-                                let light_distance =
-                                    (light.coordinates - intersection_point).norm();
-                                let mut occluded = false;
-                                for other_sphere in spheres {
-                                    if other_sphere as *const _ != sphere as *const _ {
-                                        if let Some(distance) = other_sphere.intersect(&shadow_ray)
-                                        {
-                                            if distance.distance < light_distance {
-                                                occluded = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                                if occluded {
-                                    continue;
-                                }
-                                let surface_normal = sphere.surface_normal(intersection_point);
-                                let light_intensity_scaling_factor = surface_normal.dot(&shadow_ray.direction);
-                                if light_intensity_scaling_factor > 0.0 {
-                                    light_intensity += light.intensity * light_intensity_scaling_factor;
-                                }
-                            }
-                            pixel = color * light_intensity;
-                        }
-                        Surface::Specular => {
-                            let surface_normal = sphere.surface_normal(intersection_point);
-                            let to_source = - ray.direction;
-                            let out_direction = 2.0 * to_source.dot(&surface_normal) * surface_normal - to_source;
-                            pixel = trace_ray(&Ray::origin_direction(intersection_point, out_direction), spheres, lights, depth + 1);
-                        }
-                    }
+                    closest_sphere = Some(&sphere);
                 }
             }
         }
     }
-    pixel
+    match closest_sphere {
+        Some(sphere) => {
+            let intersection_point = ray.origin + ray.direction * closest_match;
+            match sphere.surface {
+                Surface::Diffuse { color } => {
+                    let mut light_intensity: f32 = 0.0;
+                    for light in lights {
+                        let shadow_ray = Ray::from_to(intersection_point, &light.coordinates);
+                        let light_distance = (light.coordinates - intersection_point).norm();
+                        let mut occluded = false;
+                        for other_sphere in spheres {
+                            if other_sphere as *const _ != sphere as *const _ {
+                                if let Some(distance) = other_sphere.intersect(&shadow_ray) {
+                                    if distance.distance < light_distance {
+                                        occluded = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if occluded {
+                            continue;
+                        }
+                        let surface_normal = sphere.surface_normal(intersection_point);
+                        let light_intensity_scaling_factor =
+                            surface_normal.dot(&shadow_ray.direction);
+                        if light_intensity_scaling_factor > 0.0 {
+                            light_intensity += light.intensity * light_intensity_scaling_factor;
+                        }
+                    }
+                    color * light_intensity
+                }
+                Surface::Specular => {
+                    let surface_normal = sphere.surface_normal(intersection_point);
+                    let to_source = -ray.direction;
+                    let out_direction =
+                        2.0 * to_source.dot(&surface_normal) * surface_normal - to_source;
+                    trace_ray(
+                        &Ray::origin_direction(intersection_point, out_direction),
+                        spheres,
+                        lights,
+                        depth + 1,
+                    )
+                }
+            }
+        }
+        None => infinite_color(&ray),
+    }
 }
 
 fn render(
@@ -168,29 +181,39 @@ fn render(
     let upper_left = (-1.0, inverse_origin);
     let number_of_pixels = dimensions.0 * dimensions.1;
     let indices: Vec<usize> = (0..number_of_pixels).collect();
-    let antialiasing_scale_factor = 1.0 / ANTIALIASING as f32;
-    indices.par_iter().map(|i| -> Vector3<f32> {
-        let mut pixel = Vector3::<f32>::new(0.0, 0.0, 0.0);
-        let offset_right = (i % dimensions.0) as f32 * delta_x;
-        let offset_down = (i / dimensions.0) as f32 * delta_y;
-        let mut rng = rand::thread_rng();
-        let pixel_origin_x = upper_left.0 + offset_right;
-        let pixel_origin_y = upper_left.1 - offset_down;
-        for _ in 0..ANTIALIASING {
-            let random_x: f32 = rng.gen();
-            let random_y: f32 = rng.gen();
-            let ray = Ray::from_to(
-                origin,
-                &Vector3::<f32>::new(
-                     pixel_origin_x + random_x * delta_x,
-                     pixel_origin_y - random_y * delta_y,
-                    film_distance,
-                ),
-            );
-            pixel += trace_ray(&ray, spheres, lights, 1);
-        }
-        pixel * antialiasing_scale_factor
-    }).collect()
+    let antialiasing_scale_factor = 1.0 / ANTIALIASING_SQRT as f32;
+    let antiliasing_step_x = delta_x / ANTIALIASING_SQRT as f32;
+    let antiliasing_step_y = delta_y / ANTIALIASING_SQRT as f32;
+    let subpixel_offsets_x: Vec<f32> = (0..ANTIALIASING_SQRT)
+        .map(|i| 0.5 * antiliasing_step_x + i as f32 * antiliasing_step_x)
+        .collect();
+    let subpixel_offsets_y: Vec<f32> = (0..ANTIALIASING_SQRT)
+        .map(|i| 0.5 * antiliasing_step_y + i as f32 * antiliasing_step_y)
+        .collect();
+    indices
+        .par_iter()
+        .map(|i| -> Vector3<f32> {
+            let mut pixel = Vector3::<f32>::new(0.0, 0.0, 0.0);
+            let offset_right = (i % dimensions.0) as f32 * delta_x;
+            let offset_down = (i / dimensions.0) as f32 * delta_y;
+            let pixel_origin_x = upper_left.0 + offset_right;
+            let pixel_origin_y = upper_left.1 - offset_down;
+            for x in 0..ANTIALIASING_SQRT {
+                for y in 0..ANTIALIASING_SQRT {
+                    let ray = Ray::from_to(
+                        origin,
+                        &Vector3::<f32>::new(
+                            pixel_origin_x + subpixel_offsets_x[x],
+                            pixel_origin_y - subpixel_offsets_y[y],
+                            film_distance,
+                        ),
+                    );
+                    pixel += trace_ray(&ray, spheres, lights, 1);
+                }
+            }
+            pixel * antialiasing_scale_factor
+        })
+        .collect()
 }
 
 fn expose(pixels: &Vec<Vector3<f32>>) -> Vec<Vector3<f32>> {
@@ -201,10 +224,33 @@ fn expose(pixels: &Vec<Vector3<f32>>) -> Vec<Vector3<f32>> {
 fn main() {
     let dimensions = (1920 as usize, 1080 as usize);
     let spheres = vec![
-        Sphere::new(-0.2, 0.2, 7.0, 0.5, Surface::Diffuse { color: Vector3::<f32>::new(1.0, 1.0, 0.0) }),
-        Sphere::new(0.2, -0.2, 5.0, 0.5, Surface::Diffuse { color: Vector3::<f32>::new(1.0, 0.0, 0.0) }),
-        Sphere::new(0.0, -51.0, 5.0, 50.0, Surface::Diffuse { color: Vector3::<f32>::new(0.0, 1.0, 0.0) }),
-
+        Sphere::new(
+            -0.2,
+            0.2,
+            7.0,
+            0.5,
+            Surface::Diffuse {
+                color: Vector3::<f32>::new(1.0, 1.0, 0.0),
+            },
+        ),
+        Sphere::new(
+            0.2,
+            -0.2,
+            5.0,
+            0.5,
+            Surface::Diffuse {
+                color: Vector3::<f32>::new(1.0, 0.0, 0.0),
+            },
+        ),
+        Sphere::new(
+            0.0,
+            -51.0,
+            5.0,
+            50.0,
+            Surface::Diffuse {
+                color: Vector3::<f32>::new(0.0, 1.0, 0.0),
+            },
+        ),
         Sphere::new(2.0, 0.0, 10.0, 1.0, Surface::Specular),
         Sphere::new(0.0, 0.0, -10.1, 10.0, Surface::Specular),
     ];

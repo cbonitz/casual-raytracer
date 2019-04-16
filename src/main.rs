@@ -273,9 +273,3 @@ fn main() {
     }
     imgbuf.save("render.png").unwrap();
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {}
-}

@@ -1,6 +1,6 @@
 # Simple Raytracer (Work in Progress)
 
-I would like to say that I've been writing raytracers before it was cool, but that would be a lie. I was drawn to it because it's a highly visual endeavour, and allows me to apply some concepts from linear algebra and geometry while gaining more familiarity with Rust.
+I would like to say that I've been writing raytracers before it was cool, but that would be a lie. I was drawn to it because it's a highly visual endeavour, and allows me to apply some concepts from linear algebra and geometry while gaining more familiarity with Rust. In its current state, the program can renders specular and diffuse spheres using recursive raytracing and subpixel antialiasing.
 
 ## Obligatory Rendered Image
 ![Ray traced image of several spheres](render.png)

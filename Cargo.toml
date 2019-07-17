@@ -9,3 +9,12 @@ nalgebra = "0.18.0"
 image = "0.21.2"
 rand = "0.7.0"
 rayon = "1.1.0"
+
+[lib]
+name="tracelib"
+path="src/lib.rs"
+test = true
+
+[[bin]]
+name="tracer"
+path="src/main.rs"

@@ -1,11 +1,9 @@
 extern crate image;
 extern crate nalgebra as na;
-extern crate rand;
 extern crate rayon;
 
 use na::Vector3;
 #[allow(unused_imports)]
-use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use std::f32;
 
